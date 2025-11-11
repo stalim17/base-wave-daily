@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Base Wave Daily 🌊</title>
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+<style>
+  body{font-family:system-ui,Segoe UI,Inter,Arial;background:linear-gradient(180deg,#eaf2ff,#dbe3ff);margin:0;text-align:center;padding:48px}
+  h1{margin:0 0 8px} p{margin:0 0 16px}
+  .row{display:flex;gap:10px;justify-content:center;margin:16px 0}
+  button{border:0;border-radius:12px;padding:12px 18px;font-weight:700;cursor:pointer;transition:.15s}
+  #connect{background:#0b56ff;color:#fff}
+  #waveBtn{background:#22c55e;color:#06250f}
+  #waveBtn[disabled]{opacity:.6;cursor:not-allowed}
+  #status{margin-top:14px;font-size:14px;color:#444}
+</style>
+</head>
+<body>
+  <h1>🌊 Base Wave Daily</h1>
+  <p>Send one <b>wave()</b> per day on Base (24h cooldown).</p>
+  <p>Total Waves: <span id="tot">0</span></p>
+  <div class="row">
+    <button id="connect">Connect Wallet</button>
+    <button id="waveBtn" disabled>Send wave()</button>
+  </div>
+  <div id="status"></div>
+
+<script>
+const CONTRACT_ADDRESS = "0xfe626785ECbD986ce9F87f85A37F26357313a06a";
+const ABI = [
+  {"inputs":[],"name":"wave","outputs":[],"stateMutability":"nonpayable","type":"function"},
+  {"inputs":[],"name":"totalWaves","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"wavesBy","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+  {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"lastWavedAt","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
+];
+
+const $ = id => document.getElementById(id);
+
+function getInjected(){
+  const eth = window.ethereum;
+  if (!eth) return null;
+  if (eth.providers && Array.isArray(eth.providers)) {
+    const mm = eth.providers.find(p => p.isMetaMask);
+    return mm || eth.providers[0];
+  }
+  return eth;
+}
+
+async function ensureBase(provider){
+  const hex8453 = "0x2105";
+  const net = await provider.getNetwork();
+  if (net.chainId !== 8453){
+    try{
+      await window.ethereum.request({ method:"wallet_switchEthereumChain", params:[{ chainId: hex8453 }] });
+    }catch(e){
+      if(e.code===4902){
+        await window.ethereum.request({ method:"wallet_addEthereumChain", params:[{
+          chainId:hex8453, chainName:"Base Mainnet",
+          nativeCurrency:{ name:"ETH", symbol:"ETH", decimals:18 },
+          rpcUrls:["https://mainnet.base.org"], blockExplorerUrls:["https://basescan.org"]
+        }]});
+      }else{ throw e; }
+    }
+  }
+}
+
+let provider, signer, contract;
+
+async function updateTotal(){
+  try{
+    const rp = new ethers.providers.JsonRpcProvider("https://mainnet.base.org");
+    const ro = new ethers.Contract(CONTRACT_ADDRESS, ABI, rp);
+    const t = await ro.totalWaves();
+    $("tot").innerText = t.toString();
+  }catch{}
+}
+
+async function connect(){
+  try{
+    const eth = getInjected();
+    if(!eth){
+      $("status").innerText = "Wallet not detected. Use MetaMask/CB Wallet (앱 브라우저 권장).";
+      return;
+    }
+    provider = new ethers.providers.Web3Provider(eth);
+    await provider.send("eth_requestAccounts", []);
+    await ensureBase(provider);
+    signer = provider.getSigner();
+    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+    $("status").innerText = "✅ Connected";
+    $("waveBtn").disabled = false;
+    updateTotal();
+  }catch(e){
+    $("status").innerText = "❌ " + (e?.message || e);
+  }
+}
+
+async function sendWave(){
+  try{
+    $("status").innerText = "Sending tx…";
+    const tx = await contract.wave();
+    await tx.wait();
+    $("status").innerText = "🌊 Wave sent!";
+    updateTotal();
+  }catch(e){
+    $("status").innerText = "❌ " + (e?.data?.message || e?.message || e);
+  }
+}
+
+$("connect").onclick = connect;
+$("waveBtn").onclick = sendWave;
+updateTotal();
+</script>
+</body>
+</html>
